@@ -3,11 +3,12 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import '../css/main.css';
 
-import { clearSession, getUser } from './auth/session.service.js';
+import { clearSession } from './auth/session.service.js';
 import { isAuthenticated } from './auth/permissions.js';
 import { Navbar } from './components/layout/Navbar.js';
 import { routes } from './router/routes.js';
 import { requireAdmin, requireAuth } from './router/guards.js';
+import { AlojamientosPage, cargarAlojamientos } from './pages/AlojamientosPage.js';
 
 const app = document.querySelector('#app');
 let currentView = 'home';
@@ -52,40 +53,6 @@ function renderNotFoundPage() {
   `;
 }
 
-function renderHomePage() {
-  const user = getUser();
-
-  return `
-    <section class="container py-5">
-      <div class="row justify-content-center">
-        <div class="col-12 col-lg-9 py-4">
-          <p class="text-uppercase text-primary fw-semibold mb-2">Frontend Alojamientos</p>
-          <h1 class="display-6 mb-3">Base SPA lista para comenzar</h1>
-          <p class="text-muted mb-4">
-            Este arranque deja lista la autenticación y la navegación principal.
-          </p>
-          <div class="d-flex flex-wrap gap-2">
-            ${
-              isAuthenticated()
-                ? '<a class="btn btn-primary" href="#" data-view="perfil">Ir a mi perfil</a>'
-                : '<a class="btn btn-primary" href="#" data-view="login">Iniciar sesión</a><a class="btn btn-outline-secondary" href="#" data-view="registro">Crear cuenta</a>'
-            }
-          </div>
-          ${
-            user?.correo
-              ? `
-                <p class="text-muted mt-4 mb-0">
-                  Has iniciado sesión como <strong>${user.correo}</strong>.
-                </p>
-              `
-              : ''
-          }
-        </div>
-      </div>
-    </section>
-  `;
-}
-
 function normalizeView(view) {
   const normalized = String(view ?? 'home')
     .trim()
@@ -93,6 +60,25 @@ function normalizeView(view) {
     .replace(/^\/+|\/+$/g, '');
 
   return normalized || 'home';
+}
+
+function matchRoute(view) {
+  for (const route of routes) {
+    const pattern = route.path.replace(/:(\w+)/g, '([^/]+)');
+    const regex = new RegExp(`^${pattern}$`);
+    const match = view.match(regex);
+
+    if (match) {
+      const paramNames = [...route.path.matchAll(/:(\w+)/g)].map((m) => m[1]);
+      const params = {};
+      paramNames.forEach((name, index) => {
+        params[name] = match[index + 1];
+      });
+      return { route, params };
+    }
+  }
+
+  return null;
 }
 
 function handleDeniedAccess(reason) {
@@ -110,6 +96,26 @@ function handleDeniedAccess(reason) {
   }
 }
 
+function renderHomePage() {
+  const pageHtml = AlojamientosPage();
+  const addButton = isAuthenticated()
+    ? '<a class="btn btn-primary mb-4" href="#" data-view="alojamientos/nuevo"><i class="bi bi-plus-lg"></i> Nuevo alojamiento</a>'
+    : '';
+
+  return `
+    <section class="container py-5">
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+          <h1 class="mb-2">Alojamientos</h1>
+          <p class="text-muted mb-0">Explora los alojamientos disponibles en la plataforma.</p>
+        </div>
+        ${addButton}
+      </div>
+      <div id="alojamientosState" class="text-muted">Cargando alojamientos...</div>
+    </section>
+  `;
+}
+
 function render(view = currentView) {
   const normalizedView = normalizeView(view);
 
@@ -119,12 +125,13 @@ function render(view = currentView) {
       ${Navbar(currentView)}
       <main id="page-root">${renderHomePage()}</main>
     `;
+    cargarAlojamientos();
     return;
   }
 
-  const route = routes.find((item) => item.path === normalizedView);
+  const matched = matchRoute(normalizedView);
 
-  if (!route) {
+  if (!matched) {
     currentView = 'not-found';
     app.innerHTML = `
       ${Navbar(currentView)}
@@ -132,6 +139,8 @@ function render(view = currentView) {
     `;
     return;
   }
+
+  const { route, params } = matched;
 
   if (route.requiresAdmin && !requireAdmin(handleDeniedAccess)) {
     return;
@@ -143,14 +152,14 @@ function render(view = currentView) {
 
   currentView = normalizedView;
 
-  const pageHtml = route.page() ?? '';
+  const pageHtml = params.id ? route.page(params.id) : route.page();
 
   app.innerHTML = `
     ${Navbar(currentView)}
     <main id="page-root">${pageHtml}</main>
   `;
 
-  route.mount?.({ navigate, render, view: currentView });
+  route.mount?.({ navigate, render, view: currentView, params });
 }
 
 function navigate(view = 'home') {
