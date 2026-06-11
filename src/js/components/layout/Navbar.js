@@ -1,4 +1,4 @@
-import { getUser, hasSession } from '../../auth/session.service.js';
+import { getCurrentUser, isAdmin, isAuthenticated } from '../../auth/permissions.js';
 
 function isActive(view, currentView) {
   return currentView === view ? 'active fw-semibold' : '';
@@ -45,8 +45,8 @@ function navDropdown(user, currentView) {
 }
 
 export function Navbar(currentView = 'home') {
-  const user = getUser();
-  const loggedIn = hasSession();
+  const user = getCurrentUser();
+  const loggedIn = isAuthenticated();
 
   return `
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
@@ -69,6 +69,7 @@ export function Navbar(currentView = 'home') {
             ${
               loggedIn
                 ? `
+                  ${isAdmin() ? navLink('admin', 'Usuarios', currentView) : ''}
                   ${navDropdown(user, currentView)}
                 `
                 : `

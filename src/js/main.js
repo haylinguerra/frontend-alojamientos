@@ -3,14 +3,34 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 import '../css/main.css';
 
-import { clearSession, getUser, hasSession } from './auth/session.service.js';
+import { clearSession, getUser } from './auth/session.service.js';
+import { isAuthenticated } from './auth/permissions.js';
 import { Navbar } from './components/layout/Navbar.js';
-import { LoginPage, mountLoginPage } from './pages/LoginPage.js';
-import { PerfilPage, mountPerfilPage } from './pages/PerfilPage.js';
-import { RegistroPage, mountRegistroPage } from './pages/RegistroPage.js';
+import { routes } from './router/routes.js';
+import { requireAdmin, requireAuth } from './router/guards.js';
 
 const app = document.querySelector('#app');
 let currentView = 'home';
+
+function renderForbiddenPage() {
+  return `
+    <section class="container py-5">
+      <div class="row justify-content-center">
+        <div class="col-12 col-lg-8">
+          <div class="card border-0 shadow-sm">
+            <div class="card-body p-4 p-md-5 text-center">
+              <h1 class="h3 mb-3">Acceso denegado</h1>
+              <p class="text-muted mb-4">
+                No tienes permisos para acceder a esta sección.
+              </p>
+              <a class="btn btn-primary" href="#" data-view="home">Ir al inicio</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
 
 function renderNotFoundPage() {
   return `
@@ -46,7 +66,7 @@ function renderHomePage() {
           </p>
           <div class="d-flex flex-wrap gap-2">
             ${
-              hasSession()
+              isAuthenticated()
                 ? '<a class="btn btn-primary" href="#" data-view="perfil">Ir a mi perfil</a>'
                 : '<a class="btn btn-primary" href="#" data-view="login">Iniciar sesión</a><a class="btn btn-outline-secondary" href="#" data-view="registro">Crear cuenta</a>'
             }
@@ -75,30 +95,36 @@ function normalizeView(view) {
   return normalized || 'home';
 }
 
-const views = {
-  home: {
-    page: renderHomePage,
-  },
-  login: {
-    page: LoginPage,
-    mount: mountLoginPage,
-  },
-  registro: {
-    page: RegistroPage,
-    mount: mountRegistroPage,
-  },
-  perfil: {
-    requiresAuth: true,
-    page: PerfilPage,
-    mount: mountPerfilPage,
-  },
-};
+function handleDeniedAccess(reason) {
+  if (reason === 'login') {
+    navigate('login');
+    return;
+  }
+
+  if (reason === 'forbidden') {
+    currentView = 'forbidden';
+    app.innerHTML = `
+      ${Navbar(currentView)}
+      <main id="page-root">${renderForbiddenPage()}</main>
+    `;
+  }
+}
 
 function render(view = currentView) {
   const normalizedView = normalizeView(view);
-  const selectedView = views[normalizedView];
 
-  if (!selectedView) {
+  if (normalizedView === 'home') {
+    currentView = 'home';
+    app.innerHTML = `
+      ${Navbar(currentView)}
+      <main id="page-root">${renderHomePage()}</main>
+    `;
+    return;
+  }
+
+  const route = routes.find((item) => item.path === normalizedView);
+
+  if (!route) {
     currentView = 'not-found';
     app.innerHTML = `
       ${Navbar(currentView)}
@@ -107,21 +133,24 @@ function render(view = currentView) {
     return;
   }
 
-  if (selectedView.requiresAuth && !hasSession()) {
-    navigate('login');
+  if (route.requiresAdmin && !requireAdmin(handleDeniedAccess)) {
+    return;
+  }
+
+  if (route.requiresAuth && !requireAuth(handleDeniedAccess)) {
     return;
   }
 
   currentView = normalizedView;
 
-  const pageHtml = selectedView.page() ?? '';
+  const pageHtml = route.page() ?? '';
 
   app.innerHTML = `
     ${Navbar(currentView)}
     <main id="page-root">${pageHtml}</main>
   `;
 
-  selectedView.mount?.({ navigate, render, view: currentView });
+  route.mount?.({ navigate, render, view: currentView });
 }
 
 function navigate(view = 'home') {
